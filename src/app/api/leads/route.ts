@@ -29,14 +29,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const db = getDb();
-  const body: NewLead = await req.json();
+  const body: NewLead & { lat?: number; lng?: number } = await req.json();
 
-  const stmt = db.prepare(`
+  const result = db.prepare(`
     INSERT INTO leads (name, phone, email, address, city, status, source, notes)
     VALUES (@name, @phone, @email, @address, @city, @status, @source, @notes)
-  `);
-
-  const result = stmt.run({
+  `).run({
     name: body.name,
     phone: body.phone ?? null,
     email: body.email ?? null,
@@ -47,9 +45,14 @@ export async function POST(req: NextRequest) {
     notes: body.notes ?? null,
   });
 
-  const coords = await geocodeAddress(body.address ?? null, body.city ?? null);
-  if (coords) {
-    db.prepare('UPDATE leads SET lat = ?, lng = ? WHERE id = ?').run(coords.lat, coords.lng, result.lastInsertRowid);
+  // Use provided coords if available (e.g. from map click), otherwise geocode
+  if (body.lat != null && body.lng != null) {
+    db.prepare('UPDATE leads SET lat = ?, lng = ? WHERE id = ?').run(body.lat, body.lng, result.lastInsertRowid);
+  } else {
+    const coords = await geocodeAddress(body.address ?? null, body.city ?? null);
+    if (coords) {
+      db.prepare('UPDATE leads SET lat = ?, lng = ? WHERE id = ?').run(coords.lat, coords.lng, result.lastInsertRowid);
+    }
   }
 
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(result.lastInsertRowid);
