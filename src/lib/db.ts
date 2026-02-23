@@ -30,6 +30,11 @@ function initSchema(db: Database.Database) {
       updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Migrate: add lat/lng if they don't exist yet
+  const cols = (db.prepare('PRAGMA table_info(leads)').all() as { name: string }[]).map(c => c.name);
+  if (!cols.includes('lat')) db.exec('ALTER TABLE leads ADD COLUMN lat REAL');
+  if (!cols.includes('lng')) db.exec('ALTER TABLE leads ADD COLUMN lng REAL');
 }
 
 export type LeadStatus = 'New' | 'Contacted' | 'Quoted' | 'Won' | 'Lost';
@@ -44,6 +49,8 @@ export interface Lead {
   status: LeadStatus;
   source: string | null;
   notes: string | null;
+  lat: number | null;
+  lng: number | null;
   created_at: string;
   updated_at: string;
 }

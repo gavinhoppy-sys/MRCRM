@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE_NAME } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,7 +39,11 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <header className="flex items-center justify-end px-6 py-3 border-b bg-background">
+        <header className="flex items-center justify-between px-6 py-3 border-b bg-background">
+          <nav className="flex items-center gap-4">
+            <Link href="/" className="text-sm font-medium hover:underline">Leads</Link>
+            <Link href="/map" className="text-sm font-medium hover:underline">Map</Link>
+          </nav>
           <form action={logoutAction}>
             <Button type="submit" variant="ghost" size="sm">
               Log out

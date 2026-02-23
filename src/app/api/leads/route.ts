@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, type NewLead } from '@/lib/db';
+import { geocodeAddress } from '@/lib/geocode';
 
 export async function GET(req: NextRequest) {
   const db = getDb();
@@ -45,6 +46,11 @@ export async function POST(req: NextRequest) {
     source: body.source ?? null,
     notes: body.notes ?? null,
   });
+
+  const coords = await geocodeAddress(body.address ?? null, body.city ?? null);
+  if (coords) {
+    db.prepare('UPDATE leads SET lat = ?, lng = ? WHERE id = ?').run(coords.lat, coords.lng, result.lastInsertRowid);
+  }
 
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(result.lastInsertRowid);
   return NextResponse.json(lead, { status: 201 });
