@@ -43,6 +43,7 @@ export default async function RootLayout({
           <nav className="flex items-center gap-4">
             <Link href="/" className="text-sm font-medium hover:underline">Leads</Link>
             <Link href="/map" className="text-sm font-medium hover:underline">Map</Link>
+            <Link href="/prospecting" className="text-sm font-medium hover:underline">Prospects</Link>
           </nav>
           <form action={logoutAction}>
             <Button type="submit" variant="ghost" size="sm">
