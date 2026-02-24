@@ -24,7 +24,7 @@ export interface Prospect {
 }
 
 async function fetchCounty(countyName: string, serviceUrl: string): Promise<Prospect[]> {
-  const where = `BUILT_YR <= ${MAX_AGE_YEAR} AND BUILT_YR > 1800 AND BLDG_SQFT >= ${MIN_SQFT} AND PROP_CLASS LIKE '1%'`;
+  const where = `BUILT_YR <= ${MAX_AGE_YEAR} AND BUILT_YR > 1800 AND BLDG_SQFT >= ${MIN_SQFT} AND BLDG_SQFT <= 15000 AND PROP_CLASS = 'Residential' AND PRIMARY_RES = 'Y'`;
   const fields = 'PARCEL_ID,PARCEL_ADD,PARCEL_CITY,BLDG_SQFT,BUILT_YR,PROP_CLASS';
 
   const url = `${serviceUrl}/query?` + new URLSearchParams({
