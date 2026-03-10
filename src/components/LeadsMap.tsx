@@ -172,11 +172,11 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
             key={riskData.features.length}
             data={riskData}
             style={() => ({
-              fillColor: '#ef4444',
-              fillOpacity: 0.18,
-              color: '#ef4444',
+              fillColor: '#111827',
+              fillOpacity: 0.15,
+              color: '#111827',
               weight: 2,
-              opacity: 0.85,
+              opacity: 0.9,
             })}
           />
         )}
@@ -222,15 +222,15 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <div style={{
             width: 14, height: 14, borderRadius: 2,
-            background: 'rgba(239,68,68,0.18)', border: '2px solid #ef4444', flexShrink: 0,
+            background: 'rgba(17,24,39,0.15)', border: '2px solid #111827', flexShrink: 0,
           }} />
-          <span style={{ fontWeight: 600, fontSize: 13 }}>Wind Risk Zones</span>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Shingle Risk Zones</span>
           <button
             onClick={() => setShowRisk(v => !v)}
             style={{
               marginLeft: 'auto', fontSize: 11, padding: '2px 8px',
               border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer',
-              background: showRisk ? '#fee2e2' : '#f3f4f6', color: showRisk ? '#b91c1c' : '#6b7280',
+              background: showRisk ? '#f3f4f6' : '#f9fafb', color: showRisk ? '#111827' : '#6b7280',
             }}
           >
             {showRisk ? 'Hide' : 'Show'}
@@ -242,23 +242,23 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
           {riskError && <span style={{ color: '#b91c1c' }}>Error: {riskError}</span>}
           {riskMeta && !riskLoading && (
             <>
-              <div>Homes 20+ yrs, 4000+ sqft</div>
-              <div>Wind events ≥60 mph (last 12 mo)</div>
+              <div>Homes 15+ yrs, 4000+ sqft</div>
+              <div>Wind events ≥45 mph (last 2 yrs)</div>
               <div style={{ marginTop: 4, borderTop: '1px solid #f3f4f6', paddingTop: 4 }}>
-                <span style={{ color: riskMeta.windEventCount > 0 ? '#b91c1c' : '#6b7280' }}>
+                <span style={{ color: riskMeta.windEventCount > 0 ? '#111827' : '#6b7280' }}>
                   {riskMeta.windEventCount} wind events
                 </span>
                 {' · '}
                 <span>{riskMeta.parcelCount.toLocaleString()} qualifying homes</span>
               </div>
-              <div style={{ fontWeight: 600, color: riskMeta.matchingZones > 0 ? '#b91c1c' : '#6b7280' }}>
+              <div style={{ fontWeight: 600, color: riskMeta.matchingZones > 0 ? '#111827' : '#6b7280' }}>
                 {riskMeta.matchingZones} overlapping zone{riskMeta.matchingZones !== 1 ? 's' : ''}
               </div>
             </>
           )}
           {!riskLoading && !riskError && riskMeta?.windEventCount === 0 && (
             <div style={{ color: '#6b7280', marginTop: 2 }}>
-              No 60+ mph events recorded in Utah in the last 12 months.
+              No 45+ mph events recorded in Utah in the last 2 years.
             </div>
           )}
         </div>

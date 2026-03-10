@@ -7,6 +7,10 @@ const COUNTIES = {
   'Weber':     'https://services1.arcgis.com/99lidPhWCzftIe9K/ArcGIS/rest/services/Parcels_Weber_LIR/FeatureServer/0',
 };
 
+// Shingle damage risk: lower speed threshold, broader lookback window
+const MIN_WIND_MPH = 45;   // shingles start lifting at ~45 mph
+const LOOKBACK_YEARS = 2;  // last 2 years of wind events
+
 // ~4km grid cells — coarse enough to represent a "neighborhood" zone
 const CELL_SIZE = 0.04;
 
@@ -30,7 +34,7 @@ interface WindEvent {
 async function fetchWindEvents(): Promise<WindEvent[]> {
   const end = new Date();
   const start = new Date(end);
-  start.setFullYear(start.getFullYear() - 1);
+  start.setFullYear(start.getFullYear() - LOOKBACK_YEARS);
 
   const sts = start.toISOString().slice(0, 19) + 'Z';
   const ets = end.toISOString().slice(0, 19) + 'Z';
@@ -52,7 +56,7 @@ async function fetchWindEvents(): Promise<WindEvent[]> {
       const data = await res.json();
       for (const f of data.features ?? []) {
         const mag = Number(f.properties?.magnitude ?? 0);
-        if (mag < 60) continue;
+        if (mag < MIN_WIND_MPH) continue;
         const [lon, lat] = f.geometry?.coordinates ?? [];
         if (!lat || !lon) continue;
         events.push({
@@ -81,7 +85,7 @@ interface Centroid {
  * Uses returnCentroid=true so we don't pull full polygon geometry.
  */
 async function fetchParcelCentroids(): Promise<Centroid[]> {
-  const maxBuiltYear = new Date().getFullYear() - 20;
+  const maxBuiltYear = new Date().getFullYear() - 15; // 15+ years old
   const where =
     `BUILT_YR <= ${maxBuiltYear} AND BUILT_YR > 1800` +
     ` AND BLDG_SQFT >= 4000 AND BLDG_SQFT <= 15000` +
