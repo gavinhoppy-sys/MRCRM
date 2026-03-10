@@ -7,72 +7,93 @@ const COUNTIES = {
   'Weber':     'https://services1.arcgis.com/99lidPhWCzftIe9K/ArcGIS/rest/services/Parcels_Weber_LIR/FeatureServer/0',
 };
 
-// Shingle damage risk: lower speed threshold, broader lookback window
-const MIN_WIND_MPH = 45;   // shingles start lifting at ~45 mph
-const LOOKBACK_YEARS = 2;  // last 2 years of wind events
+const MIN_GUST_MPH = 45;   // shingles start lifting at ~45 mph gust
+const LOOKBACK_YEARS = 2;
 
-// ~4km grid cells — coarse enough to represent a "neighborhood" zone
+// ~4km grid cells for parcel matching
 const CELL_SIZE = 0.04;
+
+// How many parcel cells to expand around each ERA5 wind point (ERA5 = ~0.25° grid,
+// so 4 cells × 0.04° = 0.16° expansion keeps us within that ERA5 tile)
+const WIND_EXPAND = 4;
 
 function cellKey(lat: number, lon: number): string {
   return `${Math.floor(lat / CELL_SIZE)},${Math.floor(lon / CELL_SIZE)}`;
 }
 
-interface WindEvent {
+interface WindPoint {
   lat: number;
   lon: number;
-  magnitude: number;
-  time: string;
-  typetext: string;
+  maxGust: number;
 }
 
 /**
- * Fetch high-wind Local Storm Reports from Iowa Environmental Mesonet.
- * Types: W = TSTM WND GST (≥58 mph), G = NON-TSTM WND GST
- * We filter to magnitude >= 60 mph.
+ * Fetch historical daily max wind gusts from Open-Meteo ERA5 reanalysis.
+ * ERA5 is actual meteorological model data — not storm spotter reports —
+ * so it covers the entire area with no gaps.
+ *
+ * We sample a grid of points across the Wasatch Front (the 4 target counties)
+ * at 0.25° spacing (ERA5's native resolution) and flag any point that had a
+ * daily max gust >= 45 mph in the last 2 years.
  */
-async function fetchWindEvents(): Promise<WindEvent[]> {
-  const end = new Date();
-  const start = new Date(end);
-  start.setFullYear(start.getFullYear() - LOOKBACK_YEARS);
+async function fetchWindPoints(): Promise<WindPoint[]> {
+  // Bounding box covering Salt Lake, Utah, Davis, Weber counties
+  const LAT_MIN = 39.75, LAT_MAX = 41.50;
+  const LON_MIN = -112.50, LON_MAX = -111.25;
+  const STEP = 0.25; // ERA5 native resolution
 
-  const sts = start.toISOString().slice(0, 19) + 'Z';
-  const ets = end.toISOString().slice(0, 19) + 'Z';
-
-  const events: WindEvent[] = [];
-
-  for (const type of ['W', 'G']) {
-    try {
-      const url =
-        `https://mesonet.agron.iastate.edu/api/1/lsrs.geojson` +
-        `?sts=${sts}&ets=${ets}&states=UT&type=${type}`;
-
-      const res = await fetch(url, {
-        next: { revalidate: 3600 },
-        headers: { 'User-Agent': 'RoofingCRM/1.0' },
-      });
-      if (!res.ok) continue;
-
-      const data = await res.json();
-      for (const f of data.features ?? []) {
-        const mag = Number(f.properties?.magnitude ?? 0);
-        if (mag < MIN_WIND_MPH) continue;
-        const [lon, lat] = f.geometry?.coordinates ?? [];
-        if (!lat || !lon) continue;
-        events.push({
-          lat,
-          lon,
-          magnitude: mag,
-          time: String(f.properties?.valid ?? ''),
-          typetext: String(f.properties?.typetext ?? ''),
-        });
-      }
-    } catch {
-      // one type failing shouldn't abort everything
+  const lats: number[] = [];
+  const lons: number[] = [];
+  for (let lat = LAT_MIN; lat <= LAT_MAX + 0.01; lat += STEP) {
+    for (let lon = LON_MIN; lon <= LON_MAX + 0.01; lon += STEP) {
+      lats.push(Math.round(lat * 100) / 100);
+      lons.push(Math.round(lon * 100) / 100);
     }
   }
 
-  return events;
+  const end = new Date();
+  // ERA5 archive has ~5 day lag; cap end date safely
+  end.setDate(end.getDate() - 5);
+  const start = new Date(end);
+  start.setFullYear(start.getFullYear() - LOOKBACK_YEARS);
+
+  const startDate = start.toISOString().slice(0, 10);
+  const endDate = end.toISOString().slice(0, 10);
+
+  const url =
+    `https://archive-api.open-meteo.com/v1/archive` +
+    `?latitude=${lats.join(',')}&longitude=${lons.join(',')}` +
+    `&start_date=${startDate}&end_date=${endDate}` +
+    `&daily=wind_gusts_10m_max&wind_speed_unit=mph&timezone=UTC`;
+
+  try {
+    const res = await fetch(url, {
+      next: { revalidate: 86400 }, // cache 24h — historical data doesn't change
+      headers: { 'User-Agent': 'RoofingCRM/1.0' },
+    });
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    // Open-Meteo returns an array when multiple locations are requested
+    const locations: Array<{ latitude: number; longitude: number; daily?: { wind_gusts_10m_max?: (number | null)[] } }> =
+      Array.isArray(data) ? data : [data];
+
+    const windyPoints: WindPoint[] = [];
+    for (const loc of locations) {
+      const gusts = (loc.daily?.wind_gusts_10m_max ?? []).filter(
+        (v): v is number => v != null && Number.isFinite(v)
+      );
+      if (gusts.length === 0) continue;
+      const maxGust = gusts.reduce((a, b) => (b > a ? b : a), 0);
+      if (maxGust >= MIN_GUST_MPH) {
+        windyPoints.push({ lat: loc.latitude, lon: loc.longitude, maxGust });
+      }
+    }
+
+    return windyPoints;
+  } catch {
+    return [];
+  }
 }
 
 interface Centroid {
@@ -81,11 +102,10 @@ interface Centroid {
 }
 
 /**
- * Fetch parcel centroids for homes 20+ years old, 4000+ sqft from ArcGIS.
- * Uses returnCentroid=true so we don't pull full polygon geometry.
+ * Fetch parcel centroids for homes 15+ years old, 4000+ sqft from ArcGIS.
  */
 async function fetchParcelCentroids(): Promise<Centroid[]> {
-  const maxBuiltYear = new Date().getFullYear() - 15; // 15+ years old
+  const maxBuiltYear = new Date().getFullYear() - 15;
   const where =
     `BUILT_YR <= ${maxBuiltYear} AND BUILT_YR > 1800` +
     ` AND BLDG_SQFT >= 4000 AND BLDG_SQFT <= 15000` +
@@ -128,25 +148,34 @@ async function fetchParcelCentroids(): Promise<Centroid[]> {
 
 export async function GET() {
   try {
-    const [windEvents, parcelCentroids] = await Promise.all([
-      fetchWindEvents(),
+    const [windPoints, parcelCentroids] = await Promise.all([
+      fetchWindPoints(),
       fetchParcelCentroids(),
     ]);
 
-    // Build cell sets for each criterion
+    // Expand each ERA5 wind point to nearby parcel-grid cells
     const windCells = new Set<string>();
-    for (const e of windEvents) windCells.add(cellKey(e.lat, e.lon));
+    for (const wp of windPoints) {
+      const baseLat = Math.floor(wp.lat / CELL_SIZE);
+      const baseLon = Math.floor(wp.lon / CELL_SIZE);
+      for (let di = -WIND_EXPAND; di <= WIND_EXPAND; di++) {
+        for (let dj = -WIND_EXPAND; dj <= WIND_EXPAND; dj++) {
+          windCells.add(`${baseLat + di},${baseLon + dj}`);
+        }
+      }
+    }
 
+    // Build parcel cell set
     const parcelCells = new Set<string>();
     for (const c of parcelCentroids) parcelCells.add(cellKey(c.lat, c.lon));
 
-    // Intersection: cells with BOTH wind events AND qualifying parcels
+    // Intersection: cells in wind zones that also have qualifying parcels
     const matchingKeys: string[] = [];
     for (const key of windCells) {
       if (parcelCells.has(key)) matchingKeys.push(key);
     }
 
-    // Convert grid cells to GeoJSON polygon rectangles
+    // Convert to GeoJSON rectangles
     const features = matchingKeys.map((key) => {
       const [latIdx, lonIdx] = key.split(',').map(Number);
       const s = latIdx * CELL_SIZE;
@@ -168,7 +197,7 @@ export async function GET() {
       type: 'FeatureCollection',
       features,
       meta: {
-        windEventCount: windEvents.length,
+        windEventCount: windPoints.length,   // ERA5 grid points with 45+ mph gusts
         parcelCount: parcelCentroids.length,
         matchingZones: matchingKeys.length,
       },

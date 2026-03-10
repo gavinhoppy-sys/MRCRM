@@ -243,10 +243,10 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
           {riskMeta && !riskLoading && (
             <>
               <div>Homes 15+ yrs, 4000+ sqft</div>
-              <div>Wind events ≥45 mph (last 2 yrs)</div>
+              <div>Wind gusts ≥45 mph (ERA5, last 2 yrs)</div>
               <div style={{ marginTop: 4, borderTop: '1px solid #f3f4f6', paddingTop: 4 }}>
                 <span style={{ color: riskMeta.windEventCount > 0 ? '#111827' : '#6b7280' }}>
-                  {riskMeta.windEventCount} wind events
+                  {riskMeta.windEventCount} wind grid points
                 </span>
                 {' · '}
                 <span>{riskMeta.parcelCount.toLocaleString()} qualifying homes</span>
@@ -258,7 +258,7 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
           )}
           {!riskLoading && !riskError && riskMeta?.windEventCount === 0 && (
             <div style={{ color: '#6b7280', marginTop: 2 }}>
-              No 45+ mph events recorded in Utah in the last 2 years.
+              No 45+ mph gusts found in weather data for this area.
             </div>
           )}
         </div>
