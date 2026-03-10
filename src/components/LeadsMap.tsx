@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
+import { useState, useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents, GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
 import type { Lead } from '@/lib/db';
 import { STATUSES, SOURCES } from '@/lib/constants';
@@ -46,6 +46,12 @@ function MapClickHandler({ onMapClick }: { onMapClick: (lat: number, lng: number
   return null;
 }
 
+interface RiskZonesMeta {
+  windEventCount: number;
+  parcelCount: number;
+  matchingZones: number;
+}
+
 interface Props {
   leads: Lead[];
 }
@@ -60,6 +66,27 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
   const [status, setStatus] = useState('New');
   const [source, setSource] = useState('');
 
+  // Risk zone overlay
+  const [showRisk, setShowRisk] = useState(true);
+  const [riskData, setRiskData] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [riskMeta, setRiskMeta] = useState<RiskZonesMeta | null>(null);
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskError, setRiskError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRiskLoading(true);
+    setRiskError(null);
+    fetch('/api/risk-zones')
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? 'Failed to load risk zones');
+        setRiskMeta(json.meta ?? null);
+        setRiskData({ type: 'FeatureCollection', features: json.features ?? [] });
+      })
+      .catch((err) => setRiskError(String(err)))
+      .finally(() => setRiskLoading(false));
+  }, []);
+
   const mapped = leads.filter(l => l.lat != null && l.lng != null);
 
   const center: [number, number] = mapped.length
@@ -67,7 +94,7 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
         mapped.reduce((s, l) => s + l.lat!, 0) / mapped.length,
         mapped.reduce((s, l) => s + l.lng!, 0) / mapped.length,
       ]
-    : [39.5, -98.35];
+    : [40.76, -111.89]; // Salt Lake City default
 
   async function handleMapClick(lat: number, lng: number) {
     setLoading(true);
@@ -130,7 +157,7 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
     <div style={{ height: '100%', width: '100%', position: 'relative' }}>
       <MapContainer
         center={center}
-        zoom={mapped.length ? 11 : 4}
+        zoom={mapped.length ? 11 : 10}
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
@@ -138,6 +165,21 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapClickHandler onMapClick={handleMapClick} />
+
+        {/* Risk zone overlay — red grid cells where wind ≥60mph + qualifying homes overlap */}
+        {showRisk && riskData && riskData.features.length > 0 && (
+          <GeoJSON
+            key={riskData.features.length}
+            data={riskData}
+            style={() => ({
+              fillColor: '#ef4444',
+              fillOpacity: 0.18,
+              color: '#ef4444',
+              weight: 2,
+              opacity: 0.85,
+            })}
+          />
+        )}
 
         {mapped.map(lead => (
           <Marker
@@ -162,7 +204,6 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
           </Marker>
         ))}
 
-        {/* Preview marker for the tapped point */}
         {pending && (
           <Marker
             position={[pending.lat, pending.lng]}
@@ -170,6 +211,58 @@ export default function LeadsMap({ leads: initialLeads }: Props) {
           />
         )}
       </MapContainer>
+
+      {/* Risk zone toggle panel — top right */}
+      <div style={{
+        position: 'absolute', top: 8, right: 8, zIndex: 1000,
+        background: 'white', border: '1px solid #e5e7eb', borderRadius: 8,
+        padding: '10px 12px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+        minWidth: 200, fontSize: 12,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <div style={{
+            width: 14, height: 14, borderRadius: 2,
+            background: 'rgba(239,68,68,0.18)', border: '2px solid #ef4444', flexShrink: 0,
+          }} />
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Wind Risk Zones</span>
+          <button
+            onClick={() => setShowRisk(v => !v)}
+            style={{
+              marginLeft: 'auto', fontSize: 11, padding: '2px 8px',
+              border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer',
+              background: showRisk ? '#fee2e2' : '#f3f4f6', color: showRisk ? '#b91c1c' : '#6b7280',
+            }}
+          >
+            {showRisk ? 'Hide' : 'Show'}
+          </button>
+        </div>
+
+        <div style={{ color: '#6b7280', lineHeight: 1.5 }}>
+          {riskLoading && <span>Loading wind data…</span>}
+          {riskError && <span style={{ color: '#b91c1c' }}>Error: {riskError}</span>}
+          {riskMeta && !riskLoading && (
+            <>
+              <div>Homes 20+ yrs, 4000+ sqft</div>
+              <div>Wind events ≥60 mph (last 12 mo)</div>
+              <div style={{ marginTop: 4, borderTop: '1px solid #f3f4f6', paddingTop: 4 }}>
+                <span style={{ color: riskMeta.windEventCount > 0 ? '#b91c1c' : '#6b7280' }}>
+                  {riskMeta.windEventCount} wind events
+                </span>
+                {' · '}
+                <span>{riskMeta.parcelCount.toLocaleString()} qualifying homes</span>
+              </div>
+              <div style={{ fontWeight: 600, color: riskMeta.matchingZones > 0 ? '#b91c1c' : '#6b7280' }}>
+                {riskMeta.matchingZones} overlapping zone{riskMeta.matchingZones !== 1 ? 's' : ''}
+              </div>
+            </>
+          )}
+          {!riskLoading && !riskError && riskMeta?.windEventCount === 0 && (
+            <div style={{ color: '#6b7280', marginTop: 2 }}>
+              No 60+ mph events recorded in Utah in the last 12 months.
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Add-lead panel */}
       {pending && (
